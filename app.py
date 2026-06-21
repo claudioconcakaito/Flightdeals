@@ -9,7 +9,7 @@ st.caption("Scans Skyscanner for deals under $2,500 AUD")
 
 # --- API CONFIG ---
 RAPIDAPI_KEY = st.secrets.get("RAPIDAPI_KEY", "")
-HOST = "skyscanner80.p.rapidapi.com"
+HOST = "skyscanner-flights.p.rapidapi.com"  # <--- UPDATED HOST HERE
 
 if not RAPIDAPI_KEY:
     st.error("❌ API Key missing! Please add 'RAPIDAPI_KEY' to your Streamlit secrets.")
@@ -17,14 +17,15 @@ if not RAPIDAPI_KEY:
 
 # --- ROUTES ---
 ROUTES = {
-    "Spain (Any City)": "ES", 
-    "China (Any City)": "CN"   
+    "Spain (Barcelona)": "BCN",
+    "Spain (Madrid)": "MAD",
+    "China (Beijing)": "PEK",
+    "China (Shanghai)": "PVG"
 }
 
-# --- DEBUGGING TOGGLE (Add this to the sidebar) ---
+# --- DEBUGGING TOGGLE ---
 st.sidebar.header("🛠️ Debug Panel")
-debug_mode = st.sidebar.checkbox("Show Debug Info (Cheapest price found)")
-test_mode = st.sidebar.checkbox("Force Test Deal ($99 Fake)")
+debug_mode = st.sidebar.checkbox("Show Debug Info (Raw API Response)")
 
 # --- GLITCH SCANNER FUNCTION ---
 def scan_glitch(origin, destination, max_price_aud=2500):
@@ -32,7 +33,7 @@ def scan_glitch(origin, destination, max_price_aud=2500):
     date_from = (today + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
     date_to = (today + datetime.timedelta(days=180)).strftime("%Y-%m-%d")
 
-    url = "https://skyscanner80.p.rapidapi.com/flights/search-roundtrip"
+    url = "https://skyscanner-flights.p.rapidapi.com/flights/search-roundtrip"
     
     querystring = {
         "fromId": origin,
@@ -53,10 +54,15 @@ def scan_glitch(origin, destination, max_price_aud=2500):
 
     try:
         response = requests.get(url, headers=headers, params=querystring)
+        
+        if response.status_code != 200:
+            st.error(f"🚨 API Error! Status Code: {response.status_code}.")
+            return [], []
+
         data = response.json()
         
         deals = []
-        all_prices = [] # Store all prices for debug mode
+        all_prices = []
         
         if 'itineraries' in data:
             for flight in data['itineraries']:
@@ -80,30 +86,22 @@ def scan_glitch(origin, destination, max_price_aud=2500):
         return deals[:10], all_prices
 
     except Exception as e:
-        st.error(f"API Error: {e}")
+        st.error(f"🔥 Code Crash: {e}")
         return [], []
 
 # --- UI ---
 if st.button("🚀 Scan for Glitch Fares NOW"):
     st.write("---")
-    for route_name, country_code in ROUTES.items():
+    for route_name, airport_code in ROUTES.items():
         st.subheader(f"🔍 SYD to {route_name}")
-        with st.spinner(f"Checking prices across all airports..."):
-            found_deals, all_prices = scan_glitch("SYD", country_code)
+        with st.spinner(f"Checking prices..."):
+            found_deals, all_prices = scan_glitch("SYD", airport_code)
             
-            # --- DEBUG SECTION ---
             if debug_mode and all_prices:
                 cheapest = min(all_prices)
-                st.info(f"📊 **Debug:** The cheapest Business fare the API saw was **${cheapest} AUD**. If this is over $2,500, there are no glitches right now.")
+                st.info(f"📊 **Debug:** Cheapest Business fare was **${cheapest} AUD**.")
             
-            # --- TEST MODE SECTION ---
-            if test_mode:
-                st.warning("🧪 TEST MODE ACTIVE: Showing a fake $99 deal to prove the app works!")
-                st.success(f"💰 **$99 AUD** to **MAD (Test)** on {datetime.date.today()} (Test Airline)")
-                st.markdown(f"[🔗 Book on Google Flights](https://www.google.com/travel/flights)")
-                
-            # --- REAL RESULTS ---
-            elif found_deals:
+            if found_deals:
                 st.success(f"**Top Deals Found:**")
                 for deal in found_deals:
                     st.success(f"💰 **${deal['price']} AUD** to **{deal['city']}** on {deal['date']} ({deal['airline']})")
@@ -112,6 +110,5 @@ if st.button("🚀 Scan for Glitch Fares NOW"):
                 st.warning(f"No business class deals under $2,500 AUD to {route_name} found.")
                 
     st.write("---")
-    st.caption("If Debug mode shows a price > $2,500, come back tomorrow!")
 else:
-    st.info("Click the button above to search. Use the sidebar to toggle Debug/Test modes.")
+    st.info("Click the button above to search.")
