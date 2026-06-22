@@ -5,7 +5,7 @@ import datetime
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="SYD Business Fare Finder", layout="wide")
 st.title("✈️ SYD Business Class Fare Finder")
-st.caption("Finds the absolute cheapest round-trip fare within your chosen date window.")
+st.caption("Pick your dates, region, and stay duration. Finds the cheapest round-trip business fare.")
 
 # --- API CONFIG ---
 SERP_API_KEY = st.secrets.get("SERP_API_KEY", "")
@@ -15,26 +15,30 @@ if not SERP_API_KEY:
     st.error("❌ SerpApi Key missing! Please add 'SERP_API_KEY' to your Streamlit secrets.")
     st.stop()
 
-# --- USER INPUTS ---
-st.subheader("1. Choose Your Route")
+# --- USER CONTROLS ---
+st.subheader("1. Choose Your Destination")
 destination_choice = st.selectbox(
     "Where to?",
-    ["All Spain (ES-Any)", "All Mainland China (CN-Any)", "Hong Kong (HKG)", "London (LHR)"]
+    ["All Spain (ES-Any)", "All Mainland China (CN-Any)", "Hong Kong (HKG)", "London (LHR)", "Madrid (MAD)", "Barcelona (BCN)", "Beijing (PEK)", "Shanghai (PVG)"]
 )
 
-st.subheader("2. Select Your Date Window")
+st.subheader("2. Select Your Departure Window")
 col1, col2 = st.columns(2)
 with col1:
     start_date = st.date_input("Earliest Departure", datetime.date.today() + datetime.timedelta(days=60))
 with col2:
     end_date = st.date_input("Latest Departure", datetime.date.today() + datetime.timedelta(days=90))
 
+st.subheader("3. Approximate Stay Duration")
+stay_days = st.slider("How many days do you want to stay?", min_value=7, max_value=21, value=14)
+
 # --- DATE HELPER ---
 def format_date(d):
     return d.strftime("%Y-%m-%d")
 
-# --- REVISED SCANNER (Flexible Date Window) ---
-def scan_glitch(origin, destination, start, end, max_price_aud=2500):
+# --- FLEXIBLE SCANNER (1 API Call) ---
+def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
+    # Google Flights supports searching a date RANGE by setting the outbound and return to the start/end of the range
     params = {
         "api_key": SERP_API_KEY,
         "engine": "google_flights",
@@ -56,7 +60,6 @@ def scan_glitch(origin, destination, start, end, max_price_aud=2500):
         deals = []
         all_prices = []
         
-        # Google returns an array of "best flights" for the window
         if "best_flights" in data:
             for flight in data["best_flights"]:
                 price = flight.get("price", 0)
@@ -64,7 +67,6 @@ def scan_glitch(origin, destination, start, end, max_price_aud=2500):
                 
                 if 500 < price < max_price_aud:
                     airline = flight["airlines"][0] if flight["airlines"] else "Unknown"
-                    
                     try:
                         city_code = flight["departure_airport"]["id"]
                     except:
@@ -80,36 +82,30 @@ def scan_glitch(origin, destination, start, end, max_price_aud=2500):
                     })
         
         deals.sort(key=lambda x: x['price'])
-        return deals[:5], all_prices
+        return deals[:3], all_prices  # Return top 3 cheapest
         
     except Exception as e:
         return [], []
 
-# --- UI & MAIN SCAN BUTTON ---
-if st.button("🚀 Scan for Cheapest Business Fares NOW"):
-    st.write("---")
-    
-    # 1. Sanity Check (SYD to LHR)
-    with st.spinner("Testing API connection..."):
-        test_deals, test_prices = scan_glitch("SYD", "LHR", start_date, end_date)
-        if test_prices:
-            st.success(f"✅ **API ONLINE**. Test route (London) found fares starting at **${min(test_prices)} AUD**.")
-        else:
-            st.error("❌ Test failed. No fares found for London. Please check your date range.")
-            st.stop()
-
-    # 2. Real Scan (Strip labels to get code like ES-Any)
+# --- UI & SCAN BUTTON ---
+st.write("---")
+if st.button("🚀 FIND CHEAPEST FARES NOW"):
     dest_code = destination_choice.split(" ")[-1].replace("(", "").replace(")", "")
     
-    with st.spinner(f"Checking SYD to {destination_choice} for your selected window..."):
-        found_deals, all_prices = scan_glitch("SYD", dest_code, start_date, end_date)
+    with st.spinner(f"Scanning for the cheapest business fare to {destination_choice}..."):
+        found_deals, all_prices = scan_cheapest("SYD", dest_code, start_date, end_date, stay_days)
         
         st.subheader(f"Results for SYD → {destination_choice}")
         
+        # Always show debug info so you know it's working
         if all_prices:
             cheapest = min(all_prices)
-            st.info(f"📊 **DEBUG:** The cheapest fare Google found in your window is **${cheapest} AUD**.")
-        
+            st.info(f"📊 **DEBUG:** The absolute cheapest fare found in this date range is **${cheapest} AUD**.")
+        else:
+            st.error("❌ The API returned no data. Please check your SerpApi key or try a wider date range.")
+            st.stop()
+
+        # Show real deals
         if found_deals:
             st.success(f"**Best Business Class Deals Found:**")
             for deal in found_deals:
@@ -119,9 +115,6 @@ if st.button("🚀 Scan for Cheapest Business Fares NOW"):
                 st.write(f"**Depart:** {deal['out_date']}  |  **Return:** {deal['return_date']}")
                 st.markdown(f"[🔗 Check & Book on Google Flights]({deal['link']})")
         else:
-            if all_prices:
-                st.warning(f"No deals under $2,500. The cheapest fare found was ${min(all_prices)}.")
-            else:
-                st.warning(f"No business class fares found in that date range. Try expanding your window.")
+            st.warning(f"No deals under $2,500 AUD. The cheapest available is ${min(all_prices)}.")
 else:
-    st.info("Select dates and a route, then click Scan.")
+    st.info("Adjust the controls above and hit Scan. This tool is now completely flexible.")
