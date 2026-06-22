@@ -1,11 +1,12 @@
 import streamlit as st
 import requests
 import datetime
+import json
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="SYD Business Fare Finder", layout="wide")
 st.title("✈️ SYD Business Class Fare Finder")
-st.caption("Pick your dates, region, and stay duration. Finds the cheapest round-trip business fare.")
+st.caption("Finally fixed. Finds the cheapest round-trip business fare for your dates.")
 
 # --- API CONFIG ---
 SERP_API_KEY = st.secrets.get("SERP_API_KEY", "")
@@ -16,13 +17,13 @@ if not SERP_API_KEY:
     st.stop()
 
 # --- USER CONTROLS ---
-st.subheader("1. Choose Your Destination")
+st.subheader("1. Choose Destination")
 destination_choice = st.selectbox(
     "Where to?",
-    ["All Spain (ES-Any)", "All Mainland China (CN-Any)", "Hong Kong (HKG)", "London (LHR)", "Madrid (MAD)", "Barcelona (BCN)", "Beijing (PEK)", "Shanghai (PVG)"]
+    ["All Spain (ES-Any)", "All Mainland China (CN-Any)", "Hong Kong (HKG)", "London (LHR)"]
 )
 
-st.subheader("2. Select Your Departure Window")
+st.subheader("2. Select Departure Window")
 col1, col2 = st.columns(2)
 with col1:
     start_date = st.date_input("Earliest Departure", datetime.date.today() + datetime.timedelta(days=60))
@@ -36,9 +37,8 @@ stay_days = st.slider("How many days do you want to stay?", min_value=7, max_val
 def format_date(d):
     return d.strftime("%Y-%m-%d")
 
-# --- FLEXIBLE SCANNER (1 API Call) ---
+# --- THE CORRECT API CALL ---
 def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
-    # Google Flights supports searching a date RANGE by setting the outbound and return to the start/end of the range
     params = {
         "api_key": SERP_API_KEY,
         "engine": "google_flights",
@@ -46,20 +46,26 @@ def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
         "arrival_id": destination,
         "outbound_date": format_date(start),
         "return_date": format_date(end),
-        "type": "1",
+        "type": "1",  # 1 = Round trip
         "cabin_class": "business",
         "currency": "AUD",
         "hl": "en",
-        "gl": "au"
+        "gl": "au",
+        "travelers": json.dumps([{"adults": 1}])  # <--- THE CRITICAL FIX
     }
 
     try:
-        response = requests.get(BASE_URL, params=params, timeout=10)
+        response = requests.get(BASE_URL, params=params, timeout=15)
         data = response.json()
         
-        deals = []
+        # --- CATCH SERPAPI ERRORS DIRECTLY ---
+        if "error" in data:
+            st.error(f"❌ SerpApi Error: {data['error']}")
+            return [], []
+
         all_prices = []
-        
+        deals = []
+
         if "best_flights" in data:
             for flight in data["best_flights"]:
                 price = flight.get("price", 0)
@@ -67,54 +73,52 @@ def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
                 
                 if 500 < price < max_price_aud:
                     airline = flight["airlines"][0] if flight["airlines"] else "Unknown"
-                    try:
-                        city_code = flight["departure_airport"]["id"]
-                    except:
-                        city_code = destination
+                    city_code = flight.get("departure_airport", {}).get("id", destination)
+                    out_date = flight.get("departure_airport", {}).get("time", "")[:10]
+                    ret_date = flight.get("return_airport", {}).get("time", "")[:10] if "return_airport" in flight else format_date(end)
 
                     deals.append({
                         "price": price,
-                        "out_date": flight["departure_airport"]["time"][:10],
-                        "return_date": flight["return_airport"]["time"][:10] if "return_airport" in flight else format_date(end),
+                        "out_date": out_date,
+                        "ret_date": ret_date,
                         "airline": airline,
                         "city": city_code,
                         "link": f"https://www.google.com/travel/flights?q=flights+{origin}+to+{city_code}+{format_date(start)}+{format_date(end)}"
                     })
         
         deals.sort(key=lambda x: x['price'])
-        return deals[:3], all_prices  # Return top 3 cheapest
+        return deals[:3], all_prices
         
     except Exception as e:
+        st.error(f"🔥 Critical Code Error: {e}")
         return [], []
 
-# --- UI & SCAN BUTTON ---
+# --- UI ---
 st.write("---")
 if st.button("🚀 FIND CHEAPEST FARES NOW"):
     dest_code = destination_choice.split(" ")[-1].replace("(", "").replace(")", "")
     
-    with st.spinner(f"Scanning for the cheapest business fare to {destination_choice}..."):
+    with st.spinner("Scanning..."):
         found_deals, all_prices = scan_cheapest("SYD", dest_code, start_date, end_date, stay_days)
         
         st.subheader(f"Results for SYD → {destination_choice}")
         
-        # Always show debug info so you know it's working
         if all_prices:
             cheapest = min(all_prices)
-            st.info(f"📊 **DEBUG:** The absolute cheapest fare found in this date range is **${cheapest} AUD**.")
-        else:
-            st.error("❌ The API returned no data. Please check your SerpApi key or try a wider date range.")
-            st.stop()
-
-        # Show real deals
+            st.info(f"📊 **DEBUG:** The absolute cheapest fare found is **${cheapest} AUD**.")
+        
         if found_deals:
-            st.success(f"**Best Business Class Deals Found:**")
+            st.success("**Best Deals Found:**")
             for deal in found_deals:
                 st.write("---")
                 st.markdown(f"### ✈️ **${deal['price']} AUD** to **{deal['city']}**")
                 st.write(f"**Airline:** {deal['airline']}")
-                st.write(f"**Depart:** {deal['out_date']}  |  **Return:** {deal['return_date']}")
-                st.markdown(f"[🔗 Check & Book on Google Flights]({deal['link']})")
+                st.write(f"**Depart:** {deal['out_date']}  |  **Return:** {deal['ret_date']}")
+                st.markdown(f"[🔗 Check & Book]({deal['link']})")
         else:
-            st.warning(f"No deals under $2,500 AUD. The cheapest available is ${min(all_prices)}.")
+            if all_prices:
+                st.warning(f"No glitches under $2,500. Cheapest was ${min(all_prices)}.")
+            else:
+                st.error("The API returned 0 results. Try widening your date window.")
 else:
-    st.info("Adjust the controls above and hit Scan. This tool is now completely flexible.")
+    st.info("Hit Scan. If it fails, it will show the exact SerpApi error.")
