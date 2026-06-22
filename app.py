@@ -6,7 +6,7 @@ import json
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="SYD Business Scanner", layout="wide")
 st.title("✈️ SYD Business Class Fare Finder (2 Adults)")
-st.caption("Correctly searches All Spain or All China using valid Google Flight regional codes.")
+st.caption("Finds the cheapest business round-trip to Spain or China using valid airport codes.")
 
 # --- API CONFIG ---
 SERP_API_KEY = st.secrets.get("SERP_API_KEY", "")
@@ -18,12 +18,13 @@ if not SERP_API_KEY:
 
 # --- USER CONTROLS ---
 st.subheader("1. Choose Destination")
-# Updated to use the correct '/m/' Google Flights Geo-IDs for regional searches
+# For 'All Spain' and 'All China', we use comma-separated major airport codes.
+# This is the only supported way to search an entire country on this engine.
 destination_map = {
-    "All Spain": "/m/06crj",
-    "All Mainland China": "/m/0d05w",
-    "Hong Kong": "/m/0d0x0",
-    "London": "/m/0d0x0" # Corrected for non-regional codes in future use
+    "All Spain (BCN,MAD)": "BCN,MAD",
+    "All Mainland China (PEK,PVG)": "PEK,PVG",
+    "Hong Kong": "HKG",
+    "London": "LHR"
 }
 
 destination_label = st.selectbox(
@@ -45,21 +46,21 @@ stay_days = st.slider("How many days do you want to stay?", min_value=7, max_val
 def format_date(d):
     return d.strftime("%Y-%m-%d")
 
-# --- THE CORRECT API CALL ---
+# --- CORRECTED SCANNER (Multi-City Code Support) ---
 def scan_cheapest(origin, destination_code, start, end, max_price_aud=2500):
     params = {
         "api_key": SERP_API_KEY,
         "engine": "google_flights",
         "departure_id": origin,
-        "arrival_id": destination_code, # e.g. "/m/06crj" for Spain
+        "arrival_id": destination_code,  # e.g., "BCN,MAD"
         "outbound_date": format_date(start),
         "return_date": format_date(end),
-        "type": "1",  # 1 = Round trip
+        "type": "1",
         "cabin_class": "business",
         "currency": "AUD",
         "hl": "en",
         "gl": "au",
-        "travelers": json.dumps([{"adults": 2}])  # <--- UPDATED TO 2 ADULTS
+        "travelers": json.dumps([{"adults": 2}])
     }
 
     try:
@@ -103,10 +104,9 @@ def scan_cheapest(origin, destination_code, start, end, max_price_aud=2500):
 # --- UI ---
 st.write("---")
 if st.button("🚀 FIND CHEAPEST FARES NOW"):
-    # Look up the /m/ code based on the user's selection
     dest_code = destination_map[destination_label]
     
-    with st.spinner("Scanning using correct Google Geo-IDs..."):
+    with st.spinner(f"Scanning SYD to {destination_label} (2 Adults)..."):
         found_deals, all_prices = scan_cheapest("SYD", dest_code, start_date, end_date)
         
         st.subheader(f"Results for SYD → {destination_label}")
@@ -129,4 +129,4 @@ if st.button("🚀 FIND CHEAPEST FARES NOW"):
             else:
                 st.warning("No business class fares found in that exact window. Try expanding your dates.")
 else:
-    st.info("Use the controls above. This version correctly uses `/m/` regional codes for Spain and China to avoid API errors.")
+    st.info("Use the controls above. This version searches multi-city codes (e.g., 'BCN,MAD') to find the cheapest deal across Spain or China.")
