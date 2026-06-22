@@ -22,10 +22,9 @@ ROUTES = {
     "Hong Kong (HKG)": "HKG"
 }
 
-# --- GLITCH SCANNER ---
+# --- SCANNER FUNCTION ---
 def scan_glitch(origin, destination, max_price_aud=2500):
     future_date = (datetime.date.today() + datetime.timedelta(days=90)).strftime("%Y-%m-%d")
-
     params = {
         "api_key": SERP_API_KEY,
         "engine": "google_flights",
@@ -65,7 +64,7 @@ def scan_glitch(origin, destination, max_price_aud=2500):
                     })
         
         deals.sort(key=lambda x: x['price'])
-        return deals[:5], all_prices
+        return deals, all_prices
         
     except Exception as e:
         return [], []
@@ -73,17 +72,31 @@ def scan_glitch(origin, destination, max_price_aud=2500):
 # --- UI ---
 if st.button("🚀 Scan ALL Airports NOW"):
     st.write("---")
+    
+    # --- 1. THE SANITY CHECK (Testing the API) ---
+    with st.spinner("Running system test..."):
+        test_deals, test_prices = scan_glitch("SYD", "LON")
+        if test_prices:
+            cheapest_test = min(test_prices)
+            st.success(f"✅ **SYSTEM ONLINE.** The test route (SYD->London) returned a price of **${cheapest_test} AUD**. Your app is alive!")
+        else:
+            st.error("❌ **SYSTEM ERROR.** The test route returned nothing. Your SerpApi key is either invalid, expired, or has hit its monthly limit. Please check your SerpApi dashboard.")
+            st.stop()
+
+    # --- 2. REAL SCANS ---
     for route_name, airport_code in ROUTES.items():
         st.subheader(f"🔍 SYD to {route_name}")
-        with st.spinner(f"Scanning every airport in this region..."):
+        with st.spinner(f"Scanning..."):
             found_deals, all_prices = scan_glitch("SYD", airport_code)
             
-            # --- FORCED DEBUG (Shows the absolute lowest price, even if it's expensive) ---
+            # Debug block (now prints ALWAYS)
             if all_prices:
                 cheapest = min(all_prices)
-                st.info(f"📊 **DEBUG:** The absolute lowest business fare Google found is **${cheapest} AUD**. (If this is >$2,500, there are no glitches right now).")
+                st.info(f"📊 **DEBUG:** The lowest Business fare Google found for this route is **${cheapest} AUD**.")
+            else:
+                st.warning("⚠️ The API returned no data for this specific route.")
             
-            # --- REAL RESULTS ---
+            # Real deals
             if found_deals:
                 st.success(f"**Cheapest Deals Found:**")
                 for deal in found_deals:
@@ -91,9 +104,9 @@ if st.button("🚀 Scan ALL Airports NOW"):
                     st.markdown(f"[🔗 Book on Google Flights]({deal['link']})")
             else:
                 if all_prices:
-                    st.warning(f"No deals under $2,500 AUD found. Cheapest was ${min(all_prices)}.")
+                    st.warning(f"No glitches under $2,500. Cheapest was ${min(all_prices)}.")
                 else:
-                    st.warning(f"No deals under $2,500 AUD found.")
+                    st.warning(f"No deals found.")
     st.write("---")
 else:
-    st.info("Click the button above. You will ALWAYS see the absolute lowest price in the debug box.")
+    st.info("Click the button above. The system will self-test first to guarantee the API is working.")
