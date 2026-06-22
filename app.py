@@ -75,7 +75,7 @@ if st.button("🚀 Scan ALL Airports NOW"):
     
     # --- 1. THE SANITY CHECK (Testing the API) ---
     with st.spinner("Running system test..."):
-        test_deals, test_prices = scan_glitch("SYD", "LON")
+        test_deals, test_prices = scan_glitch("SYD", "LHR")
         if test_prices:
             cheapest_test = min(test_prices)
             st.success(f"✅ **SYSTEM ONLINE.** The test route (SYD->London) returned a price of **${cheapest_test} AUD**. Your app is alive!")
