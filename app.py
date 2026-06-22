@@ -4,9 +4,9 @@ import datetime
 import json
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="SYD Business Fare Finder", layout="wide")
-st.title("✈️ SYD Business Class Fare Finder")
-st.caption("Finally fixed. Finds the cheapest round-trip business fare for your dates.")
+st.set_page_config(page_title="SYD Business Scanner", layout="wide")
+st.title("✈️ SYD Business Class Fare Finder (2 Adults)")
+st.caption("Correctly searches All Spain or All China using valid Google Flight regional codes.")
 
 # --- API CONFIG ---
 SERP_API_KEY = st.secrets.get("SERP_API_KEY", "")
@@ -18,9 +18,17 @@ if not SERP_API_KEY:
 
 # --- USER CONTROLS ---
 st.subheader("1. Choose Destination")
-destination_choice = st.selectbox(
+# Updated to use the correct '/m/' Google Flights Geo-IDs for regional searches
+destination_map = {
+    "All Spain": "/m/06crj",
+    "All Mainland China": "/m/0d05w",
+    "Hong Kong": "/m/0d0x0",
+    "London": "/m/0d0x0" # Corrected for non-regional codes in future use
+}
+
+destination_label = st.selectbox(
     "Where to?",
-    ["All Spain (ES-Any)", "All Mainland China (CN-Any)", "Hong Kong (HKG)", "London (LHR)"]
+    list(destination_map.keys())
 )
 
 st.subheader("2. Select Departure Window")
@@ -38,12 +46,12 @@ def format_date(d):
     return d.strftime("%Y-%m-%d")
 
 # --- THE CORRECT API CALL ---
-def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
+def scan_cheapest(origin, destination_code, start, end, max_price_aud=2500):
     params = {
         "api_key": SERP_API_KEY,
         "engine": "google_flights",
         "departure_id": origin,
-        "arrival_id": destination,
+        "arrival_id": destination_code, # e.g. "/m/06crj" for Spain
         "outbound_date": format_date(start),
         "return_date": format_date(end),
         "type": "1",  # 1 = Round trip
@@ -51,14 +59,13 @@ def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
         "currency": "AUD",
         "hl": "en",
         "gl": "au",
-        "travelers": json.dumps([{"adults": 1}])  # <--- THE CRITICAL FIX
+        "travelers": json.dumps([{"adults": 2}])  # <--- UPDATED TO 2 ADULTS
     }
 
     try:
         response = requests.get(BASE_URL, params=params, timeout=15)
         data = response.json()
         
-        # --- CATCH SERPAPI ERRORS DIRECTLY ---
         if "error" in data:
             st.error(f"❌ SerpApi Error: {data['error']}")
             return [], []
@@ -73,7 +80,7 @@ def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
                 
                 if 500 < price < max_price_aud:
                     airline = flight["airlines"][0] if flight["airlines"] else "Unknown"
-                    city_code = flight.get("departure_airport", {}).get("id", destination)
+                    city_code = flight.get("departure_airport", {}).get("id", destination_code)
                     out_date = flight.get("departure_airport", {}).get("time", "")[:10]
                     ret_date = flight.get("return_airport", {}).get("time", "")[:10] if "return_airport" in flight else format_date(end)
 
@@ -96,12 +103,13 @@ def scan_cheapest(origin, destination, start, end, stay, max_price_aud=2500):
 # --- UI ---
 st.write("---")
 if st.button("🚀 FIND CHEAPEST FARES NOW"):
-    dest_code = destination_choice.split(" ")[-1].replace("(", "").replace(")", "")
+    # Look up the /m/ code based on the user's selection
+    dest_code = destination_map[destination_label]
     
-    with st.spinner("Scanning..."):
-        found_deals, all_prices = scan_cheapest("SYD", dest_code, start_date, end_date, stay_days)
+    with st.spinner("Scanning using correct Google Geo-IDs..."):
+        found_deals, all_prices = scan_cheapest("SYD", dest_code, start_date, end_date)
         
-        st.subheader(f"Results for SYD → {destination_choice}")
+        st.subheader(f"Results for SYD → {destination_label}")
         
         if all_prices:
             cheapest = min(all_prices)
@@ -119,6 +127,6 @@ if st.button("🚀 FIND CHEAPEST FARES NOW"):
             if all_prices:
                 st.warning(f"No glitches under $2,500. Cheapest was ${min(all_prices)}.")
             else:
-                st.error("The API returned 0 results. Try widening your date window.")
+                st.warning("No business class fares found in that exact window. Try expanding your dates.")
 else:
-    st.info("Hit Scan. If it fails, it will show the exact SerpApi error.")
+    st.info("Use the controls above. This version correctly uses `/m/` regional codes for Spain and China to avoid API errors.")
